@@ -1,10 +1,9 @@
 package com.servicebio.compose.application.component
 
-import android.graphics.Rect
 import android.os.Build
-import android.util.Log
 import android.view.View
 import android.view.ViewTreeObserver
+import androidx.annotation.IntDef
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -21,7 +20,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -89,25 +87,29 @@ fun monitorKeyboardHeight(): State<Dp> {
     return rememberUpdatedState(imeHeight)
 }
 
-
 @Composable
-fun rememberKeyboardState(onAnimationEnd: (Dp) -> Unit): State<Dp> {
+fun rememberKeyboardManager(): KeyboardManager {
     //android:windowSoftInputMode="adjustResize"
 
     val density = LocalDensity.current
     val ime = WindowInsets.ime.asPaddingValues()
     val navigationBars = WindowInsets.navigationBars
+    val view = LocalView.current
 
     var imeHeight by remember { mutableStateOf(0.dp) }
+    val heightState = rememberUpdatedState(imeHeight)
+    val manager = remember { KeyboardManager(heightState) }
 
-    val view = LocalView.current
+    val toDp: (Int) -> Dp = { with(density) { it.toDp() } }
+
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         DisposableEffect(Unit) {
             val listener = WindowInsetsAnimationCallback(onProgress = {
-                imeHeight = with(density) { it.toDp() }
+                imeHeight = toDp(it)
+                manager.notifyMovementDirection(imeHeight)
             }, onAnimationEnd = {
-                onAnimationEnd(ime.calculateBottomPadding())
+                manager.notifyAnimationEnd(ime.calculateBottomPadding())
             })
 
             ViewCompat.setWindowInsetsAnimationCallback(view, listener)
@@ -118,10 +120,17 @@ fun rememberKeyboardState(onAnimationEnd: (Dp) -> Unit): State<Dp> {
         }
     } else {
         DisposableEffect(Unit) {
-            val listener = GlobalLayoutListener(view, navigationBars.getBottom(density)) {
-                imeHeight = with(density) { it.toDp() }
-                onAnimationEnd(imeHeight)
-            }
+            val listener =
+                GlobalLayoutListener(
+                    view,
+                    navigationBars.getBottom(density),
+                    onProgress = {
+                        manager.notifyMovementDirection(toDp(it))
+                    },
+                    onAnimationEnd = {
+                        imeHeight = toDp(it)
+                        manager.notifyAnimationEnd(imeHeight)
+                    })
 
             view.viewTreeObserver.addOnGlobalLayoutListener(listener)
 
@@ -129,7 +138,7 @@ fun rememberKeyboardState(onAnimationEnd: (Dp) -> Unit): State<Dp> {
         }
     }
 
-    return rememberUpdatedState(imeHeight)
+    return manager
 }
 
 @RequiresApi(Build.VERSION_CODES.R)
@@ -152,9 +161,10 @@ private class WindowInsetsAnimationCallback(
     }
 }
 
-class GlobalLayoutListener(
+private class GlobalLayoutListener(
     private val decorView: View,
     private val navigationBar: Int = -1,//-1 表示忽略键盘收起时的回调
+    private val onProgress: (Int) -> Unit = {},
     private val onAnimationEnd: (Int) -> Unit = {}
 ) :
     ViewTreeObserver.OnGlobalLayoutListener {
@@ -164,7 +174,7 @@ class GlobalLayoutListener(
 
         val screenHeight = decorView.height
         val keyboardHeight = screenHeight - rect.bottom
-
+        onProgress(keyboardHeight)
         //键盘展开
         if (keyboardHeight > 180) onAnimationEnd(keyboardHeight)
 
@@ -173,6 +183,67 @@ class GlobalLayoutListener(
             if (keyboardHeight == navigationBar) onAnimationEnd(0)
         }
 
+    }
+
+}
+
+class KeyboardManager internal constructor(val height: State<Dp>) {
+
+    @IntDef(value = [DIRECTION_UNKNOW, DIRECTION_DOWN, DIRECTION_UP])
+    @Retention(AnnotationRetention.SOURCE)
+    annotation class Direction
+
+    @Direction
+    private var movementDirection: Int = DIRECTION_UNKNOW
+
+    private var heightCached = M
+
+    companion object {
+        const val DIRECTION_DOWN: Int = 0 //键盘收起，向下运动
+        const val DIRECTION_UP: Int = 1 //键盘展开，向上运动
+        const val DIRECTION_UNKNOW: Int = -1
+
+        private val M = (-1).dp
+    }
+
+    private val animationListeners = mutableListOf<(Dp) -> Unit>()
+    private val directionListeners = mutableListOf<(Int) -> Unit>()
+
+
+    /**
+     * 监听键盘动画结束
+     */
+    fun addOnAnimationEndListener(onAnimationEnd: (Dp) -> Unit) {
+        if (!animationListeners.contains(onAnimationEnd)) {
+            animationListeners += onAnimationEnd
+        }
+    }
+
+    /**
+     * 监听键盘初始运动方向
+     */
+    fun addOnDirectionChangedListener(onDirectionChanged: (Int) -> Unit) {
+        if (!directionListeners.contains(onDirectionChanged)) {
+            directionListeners += onDirectionChanged
+        }
+    }
+
+    internal fun notifyAnimationEnd(height: Dp) {
+        heightCached = M
+        movementDirection = DIRECTION_UNKNOW
+        animationListeners.forEach { it.invoke(height) }
+    }
+
+    internal fun notifyMovementDirection(height: Dp) {
+        if (heightCached == M || heightCached == height) {
+            heightCached = height
+        } else {
+            val direction = if (height > heightCached) DIRECTION_UP else DIRECTION_DOWN
+            if (movementDirection != direction) {
+                movementDirection = direction
+                directionListeners.forEach { it.invoke(movementDirection) }
+            }
+        }
     }
 
 }

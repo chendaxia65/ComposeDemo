@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
@@ -23,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -44,7 +44,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
@@ -61,10 +60,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.node.Ref
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
@@ -74,18 +73,18 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.servicebio.compose.application.R
-import com.servicebio.compose.application.component.EditTextField
-import com.servicebio.compose.application.component.EditTextFieldController
-import com.servicebio.compose.application.component.EditableEditTextWithImage
+import com.servicebio.compose.application.emoji.EditTextField
+import com.servicebio.compose.application.emoji.EditTextFieldController
+import com.servicebio.compose.application.component.KeyboardManager
 import com.servicebio.compose.application.component.KeyboardSate
 import com.servicebio.compose.application.component.monitorKeyboardHeight
-import com.servicebio.compose.application.component.rememberKeyboardState
+import com.servicebio.compose.application.component.rememberKeyboardManager
 import com.servicebio.compose.application.ext.noRippleClickable
 import com.servicebio.compose.application.model.Conversation
 import com.servicebio.compose.application.ui.theme.ComposeDemoTheme
 import com.servicebio.compose.application.utils.EmojiEngine
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(
     navController: NavHostController,
@@ -96,10 +95,29 @@ fun ChatScreen(
     val currentPanel = remember { mutableStateOf(Panel.NONE) }
     val panelHeight by monitorKeyboardHeight()
 
+    val keyboardManager = rememberKeyboardManager()
+    val keyboardController = remember { EditTextFieldController() }
+    val isImeVisible = WindowInsets.isImeVisible
+
+    var textField by remember { mutableStateOf("中国[微笑]国庆") }
+
+
     val hidePanel = {
         Log.e("TAG", "ChatScreen: hidePanel")
         currentPanel.value = Panel.NONE
     }
+
+    LaunchedEffect(Unit) {
+        keyboardManager.addOnDirectionChangedListener {
+            //如果键盘正在升起时，Panel是开启状态，就将Panel隐藏
+            if (it == KeyboardManager.DIRECTION_UP && currentPanel.value == Panel.EMOJI) {
+                hidePanel()
+            }
+            Log.e("TAG", "rememberKeyboardManager: Direction = $it")
+        }
+    }
+
+
 
     BackHandler(currentPanel.value == Panel.EMOJI) {
         Log.e("TAG", "ChatScreen: BackHandler")
@@ -113,6 +131,9 @@ fun ChatScreen(
                 title = { Text(text = conversation?.name ?: "Chat") },
                 navigationIcon = {
                     IconButton(onClick = {
+                        if (isImeVisible) {
+                            keyboardController.hideSoftKeyboard(true)
+                        }
                         navController.popBackStack()
                     }) {
                         Icon(
@@ -128,7 +149,7 @@ fun ChatScreen(
             .exclude(WindowInsets.ime),
         modifier = Modifier
             .fillMaxSize()
-//            .nestedScroll(scrollBehavior.nestedScrollConnection)
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -140,7 +161,12 @@ fun ChatScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(rememberPanelPadding2(currentPanel.value))
+                    .padding(
+                        rememberPanelPadding2(
+                            keyboardManager,
+                            currentPanel.value == Panel.EMOJI
+                        )
+                    )
             ) {
                 Box(
                     modifier = Modifier
@@ -148,9 +174,18 @@ fun ChatScreen(
                         .weight(1.0f)
                         .background(Color.Gray)
                 )
-                ChatInputArea(currentPanel.value, onSendMessage = {
-
-                }, onPanelChanged = { currentPanel.value = it })
+                ChatInputArea2(
+                    textField,
+                    keyboardController,
+                    currentPanel.value,
+                    onInputTextChanged = {
+                        textField = it
+                    },
+                    onSendMessage = {
+                        Log.e("TAG", "onSendMessage: $textField")
+                        textField = ""
+                    },
+                    onPanelChanged = { currentPanel.value = it })
             }
             if (currentPanel.value == Panel.EMOJI) {
                 Box(
@@ -158,7 +193,7 @@ fun ChatScreen(
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
                         .height(panelHeight)
-                        .background(Color.Red)
+                        .background(MaterialTheme.colorScheme.surface)
                         .navigationBarsPadding()
                 )
             }
@@ -169,19 +204,17 @@ fun ChatScreen(
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ChatInputArea2(
+    textField: String,
+    keyboardController: EditTextFieldController,
     currentPanel: Panel = Panel.NONE,
-    onSendMessage: (AnnotatedString) -> Unit,
+    onInputTextChanged: (String) -> Unit,
+    onSendMessage: () -> Unit,
     onPanelChanged: (Panel) -> Unit
 ) {
 
-    Log.e("TAG", "ChatScreen: ChatInputArea")
-    val keyboardController = remember { EditTextFieldController() }
-
-    val focusRequester = remember { FocusRequester() }
+    Log.e("TAG", "ChatScreen: ChatInputArea textField = $textField")
     var hasFocus by remember { mutableStateOf(false) }
-
     val interactionSource = remember { MutableInteractionSource() }
-
 
     LaunchedEffect(interactionSource) {
         interactionSource.interactions.collect { interaction ->
@@ -192,9 +225,6 @@ private fun ChatInputArea2(
 
                 is PressInteraction.Release -> {
                     Log.d("interactionSource", "用户点击抬起输入框（算是一次点击）hasFocus=$hasFocus")
-                    if (hasFocus) {
-                        onPanelChanged(Panel.KEYBOARD)
-                    }
                 }
 
                 is PressInteraction.Cancel -> {
@@ -202,7 +232,6 @@ private fun ChatInputArea2(
                 }
 
                 is FocusInteraction.Focus -> {
-                    onPanelChanged(Panel.KEYBOARD)
                     hasFocus = true
                     Log.d("interactionSource", "输入框获取了焦点")
                 }
@@ -215,6 +244,12 @@ private fun ChatInputArea2(
         }
     }
 
+    LaunchedEffect(Unit) {
+        if (textField.isNotEmpty()) {
+            keyboardController.showSoftKeyboard()
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -224,20 +259,16 @@ private fun ChatInputArea2(
         verticalAlignment = Alignment.CenterVertically
     ) {
 
-        val emojiEngine = remember { EmojiEngine() }
-
-        var textField by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-            mutableStateOf(TextFieldValue())
+        EditTextField(
+            keyboardController,
+            Modifier
+                .weight(1.0f)
+                .background(Color(0xFFF0F0F0), RoundedCornerShape(8.dp))
+                .heightIn(max = 150.dp), interactionSource = interactionSource,
+            initialText = textField
+        ) {
+            onInputTextChanged(it)
         }
-
-        val annotatedText = remember(textField.text) {
-            emojiEngine.toAnnotatedString(textField.text)
-        }
-
-        EditTextField(keyboardController,Modifier
-            .weight(1.0f)
-            .background(Color(0xFFF0F0F0), RoundedCornerShape(8.dp))
-            .heightIn(max = 150.dp),interactionSource = interactionSource)
 
         Spacer(modifier = Modifier.width(6.dp))
         Box(
@@ -249,9 +280,8 @@ private fun ChatInputArea2(
                     if (emojiOpened) {
                         if (hasFocus) {
                             keyboardController.showSoftKeyboard()
-                            onPanelChanged(Panel.KEYBOARD)
                         } else {
-                            focusRequester.requestFocus()
+                            keyboardController.requestFocus()
                         }
                     } else {
                         if (!hasFocus) keyboardController.requestFocus()
@@ -268,7 +298,7 @@ private fun ChatInputArea2(
         }
 
         AnimatedContent(
-            targetState = textField.text.isNotEmpty(),
+            targetState = textField.isNotEmpty(),
             contentAlignment = Alignment.Center
         ) { state ->
             if (state) {
@@ -276,8 +306,7 @@ private fun ChatInputArea2(
                     Spacer(modifier = Modifier.width(6.dp))
                     TextButton(
                         onClick = {
-                            onSendMessage(textField.annotatedString)
-                            textField = TextFieldValue(text = "")
+                            onSendMessage()
                         },
                         shape = RoundedCornerShape(16.dp),
                         contentPadding = PaddingValues(0.dp),
@@ -320,9 +349,9 @@ private fun ChatInputArea(
 
                 is PressInteraction.Release -> {
                     Log.d("interactionSource", "用户点击抬起输入框（算是一次点击）hasFocus=$hasFocus")
-                    if (hasFocus) {
-                        onPanelChanged(Panel.KEYBOARD)
-                    }
+//                    if (hasFocus) {
+//                        onPanelChanged(Panel.KEYBOARD)
+//                    }
                 }
 
                 is PressInteraction.Cancel -> {
@@ -383,7 +412,10 @@ private fun ChatInputArea(
                     Text(
                         text = annotatedText,
                         inlineContent = emojiEngine.inlineContentMap,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp, lineHeight = 20.sp),
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = 18.sp,
+                            lineHeight = 20.sp
+                        ),
                         softWrap = true
                     )
                     innerTextFiled()
@@ -400,7 +432,7 @@ private fun ChatInputArea(
                     if (emojiOpened) {
                         if (hasFocus) {
                             keyboardController?.show()
-                            onPanelChanged(Panel.KEYBOARD)
+//                            onPanelChanged(Panel.KEYBOARD)
                         } else {
                             focusRequester.requestFocus()
                         }
@@ -466,7 +498,10 @@ fun InputAreaPreview() {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun rememberPanelPadding2(panel: Panel): PaddingValues {
+private fun rememberPanelPadding2(
+    keyboardManager: KeyboardManager,
+    isPanelOpened: Boolean
+): PaddingValues {
     val density = LocalDensity.current
     val navigationBars = WindowInsets.navigationBars
 
@@ -481,47 +516,46 @@ private fun rememberPanelPadding2(panel: Panel): PaddingValues {
 
     val keyboardState = keyboardStateRef.value!!
 
-    val imeBottom by rememberKeyboardState {
-        if (it > 0.dp) {
-            if (keyboardState.imeHeight != it) {
-                keyboardStateRef.value =
-                    KeyboardSate.of(density, navigationBars, it)
+    val imeBottom by keyboardManager.height
+
+    LaunchedEffect(keyboardManager) {
+        keyboardManager.addOnAnimationEndListener {
+            if (it > 0.dp) {
+                if (keyboardState.imeHeight != it) {
+                    keyboardStateRef.value =
+                        KeyboardSate.of(density, navigationBars, it)
+                }
+                //键盘完全升起，说明Panel已经不显示了
+                panelRef.value = false
             }
-            panelRef.value = false
         }
     }
+
+    if (isPanelOpened) panelRef.value = true
+
+    val oldPanelState = panelRef.value ?: false
 
     val navBottom = WindowInsets.navigationBars.asPaddingValues()
     val imeHeight = (imeBottom - navBottom.calculateBottomPadding()).coerceAtLeast(0.dp)
 
-    val isPanelOpened = panelRef.value ?: false
+    Log.e("TAG", "ChatScreen: imeHeight $imeHeight")
 
-    return when (panel) {
-        Panel.EMOJI -> {
-            panelRef.value = true
-            PaddingValues(bottom = keyboardState.imePadding)
-        }
 
-        Panel.KEYBOARD -> {
-            val height = if (isPanelOpened) {
-                if (imeHeight > keyboardState.imePadding) imeHeight else keyboardState.imePadding
-            } else {
-                //如果是由展开到收起状态，padding 为当前imeHeight
-                imeHeight
-            }
-            PaddingValues(bottom = height)
-        }
-
-        else -> {
-            panelRef.value = false
-            PaddingValues(bottom = 0.dp)
-        }
+    //如果是打开Panel 或者 在键盘显示之前Panel已经是开启状态，就使用固定Padding
+    val height = if (isPanelOpened || (WindowInsets.isImeVisible && oldPanelState)) {//
+        if (imeHeight > keyboardState.imePadding) imeHeight else keyboardState.imePadding
+    } else {
+        imeHeight
     }
+
+    //如果padding 为0时 说明Panel或键盘都已经收起了 恢复到默认状态
+    if (height == 0.dp) panelRef.value = false
+
+    return PaddingValues(bottom = height)
 }
 
 
 private enum class Panel {
-    KEYBOARD,
     EMOJI,
     NONE
 }

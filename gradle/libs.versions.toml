@@ -16,6 +16,7 @@ navigationCompose = "2.9.3"
 # Kotlinx Serialization JSON: https://github.com/Kotlin/kotlinx.serialization
 kotlinxSerializationJson = "1.9.0"
 runtime = "1.9.0"
+material = "1.12.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -39,6 +40,8 @@ navigation-compose = { group = "androidx.navigation", name = "navigation-compose
 # 序列化相关库
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 androidx-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "runtime" }
+
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

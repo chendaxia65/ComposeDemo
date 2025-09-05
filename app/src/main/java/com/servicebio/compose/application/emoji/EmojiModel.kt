@@ -1,3 +1,9 @@
 package com.servicebio.compose.application.emoji
 
-data class EmojiModel(val icon: Int, val emoji: String)
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
+
+@Parcelize
+@Serializable
+data class EmojiModel(val icon: Int, val emoji: String) : Parcelable

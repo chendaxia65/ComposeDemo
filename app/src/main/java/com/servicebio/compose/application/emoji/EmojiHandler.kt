@@ -6,7 +6,6 @@ import android.text.Spannable
 import android.text.style.ImageSpan
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.servicebio.compose.application.R
 
 class EmojiHandler {
 
@@ -17,9 +16,7 @@ class EmojiHandler {
     }
 
 
-    fun handler(
-        context: Context, text: Spannable?, emojiSize: Int, index: Int, length: Int
-    ) {
+    fun handler(context: Context, text: Spannable?, emojiSize: Int, index: Int, length: Int) {
         if (text == null) {
             return
         }
@@ -49,18 +46,16 @@ class EmojiHandler {
                 skip = emojiModel.emoji.length
             }
 
-            Log.e("EmojiHandler", "handler: $emojiModel", )
-
             if (icon == 0) {
                 val unicode = Character.codePointAt(text, i)
                 skip = Character.charCount(unicode)
             }
 
             if (icon > 0) {
-                val drawable: Drawable? = ContextCompat.getDrawable(context, R.drawable.img001)
-                drawable?.setBounds(0, 0, emojiSize, emojiSize)
+                val imageSpan =
+                    EmojiImageSpan.create(context, icon, emojiSize.toFloat()) ?: continue
                 text.setSpan(
-                    ImageSpan(drawable!!, ImageSpan.ALIGN_CENTER),
+                    imageSpan,
                     i,
                     i + skip,
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE

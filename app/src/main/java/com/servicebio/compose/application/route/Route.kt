@@ -14,4 +14,7 @@ sealed class Route(val route: String) {
             return "/chat/$json"
         }
     }
+
+    object Other : Route("/other")
+
 }

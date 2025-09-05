@@ -22,6 +22,7 @@ import com.servicebio.compose.application.route.Route
 import com.servicebio.compose.application.ui.theme.ComposeDemoTheme
 import com.servicebio.compose.application.ui.view.ChatScreen
 import com.servicebio.compose.application.ui.view.MainScreen
+import com.servicebio.compose.application.ui.view.OtherScreen
 import kotlinx.serialization.json.Json
 
 class MainActivity : ComponentActivity() {
@@ -29,7 +30,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         //SystemBarStyle.light(Color.TRANSPARENT,Color.TRANSPARENT)  确保底部导航栏完全透明
-        enableEdgeToEdge(navigationBarStyle = SystemBarStyle.light(Color.TRANSPARENT,Color.TRANSPARENT))
+        enableEdgeToEdge(
+            navigationBarStyle = SystemBarStyle.light(
+                Color.TRANSPARENT,
+                Color.TRANSPARENT
+            )
+        )
 
         setContent {
             ComposeDemoTheme {
@@ -64,11 +70,16 @@ class MainActivity : ComponentActivity() {
                         MainScreen(navController, viewModel)
                     }
                     composable(Route.Chat.route) {
-                        val conversationJson = it.arguments?.getString(Route.Chat.PARAMETER_NAME_CONVERSATION)
+                        val conversationJson =
+                            it.arguments?.getString(Route.Chat.PARAMETER_NAME_CONVERSATION)
 
                         val conversation =
                             conversationJson?.let { json -> Json.decodeFromString<Conversation>(json.decodeUri()) }
                         ChatScreen(navController, conversation)
+                    }
+
+                    composable(Route.Other.route) {
+                        OtherScreen(navController)
                     }
                 }
             }

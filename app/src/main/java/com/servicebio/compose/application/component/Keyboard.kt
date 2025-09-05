@@ -168,12 +168,19 @@ private class GlobalLayoutListener(
     private val onAnimationEnd: (Int) -> Unit = {}
 ) :
     ViewTreeObserver.OnGlobalLayoutListener {
+    private var oldKeyboardHeight = -1
+
     override fun onGlobalLayout() {
         val rect = android.graphics.Rect()
         decorView.getWindowVisibleDisplayFrame(rect)
 
         val screenHeight = decorView.height
         val keyboardHeight = screenHeight - rect.bottom
+
+        if(oldKeyboardHeight == keyboardHeight) return
+
+        oldKeyboardHeight = keyboardHeight
+
         onProgress(keyboardHeight)
         //键盘展开
         if (keyboardHeight > 180) onAnimationEnd(keyboardHeight)
@@ -229,16 +236,25 @@ class KeyboardManager internal constructor(val height: State<Dp>) {
     }
 
     internal fun notifyAnimationEnd(height: Dp) {
+
         heightCached = M
         movementDirection = DIRECTION_UNKNOW
         animationListeners.forEach { it.invoke(height) }
     }
 
     internal fun notifyMovementDirection(height: Dp) {
-        if (heightCached == M || heightCached == height) {
-            heightCached = height
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (heightCached == M || heightCached == height) {
+                heightCached = height
+            } else {
+                val direction = if (height > heightCached) DIRECTION_UP else DIRECTION_DOWN
+                if (movementDirection != direction) {
+                    movementDirection = direction
+                    directionListeners.forEach { it.invoke(movementDirection) }
+                }
+            }
         } else {
-            val direction = if (height > heightCached) DIRECTION_UP else DIRECTION_DOWN
+            val direction = if (height > 100.dp) DIRECTION_UP else DIRECTION_DOWN
             if (movementDirection != direction) {
                 movementDirection = direction
                 directionListeners.forEach { it.invoke(movementDirection) }

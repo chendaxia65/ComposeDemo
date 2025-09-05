@@ -1,13 +1,19 @@
 package com.servicebio.compose.application.ui.view
 
+import android.annotation.SuppressLint
+import android.app.Activity
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -28,11 +34,16 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,10 +58,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.node.Ref
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -70,60 +84,120 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.servicebio.compose.application.R
-import com.servicebio.compose.application.emoji.EditTextField
-import com.servicebio.compose.application.emoji.EditTextFieldController
 import com.servicebio.compose.application.component.KeyboardManager
 import com.servicebio.compose.application.component.KeyboardSate
 import com.servicebio.compose.application.component.monitorKeyboardHeight
 import com.servicebio.compose.application.component.rememberKeyboardManager
+import com.servicebio.compose.application.emoji.EditTextEvent
+import com.servicebio.compose.application.emoji.EditTextField
+import com.servicebio.compose.application.emoji.EditTextFieldController
+import com.servicebio.compose.application.emoji.Emoji
 import com.servicebio.compose.application.ext.noRippleClickable
 import com.servicebio.compose.application.model.Conversation
+import com.servicebio.compose.application.route.Route
 import com.servicebio.compose.application.ui.theme.ComposeDemoTheme
 import com.servicebio.compose.application.utils.EmojiEngine
+import com.servicebio.compose.application.viewmodel.ChatViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
 
+@SuppressLint("ContextCastToActivity")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(
     navController: NavHostController,
-    conversation: Conversation?
+    conversation: Conversation?,
+    viewModel: ChatViewModel = viewModel<ChatViewModel>()
 ) {
+
     val topBarState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(topBarState)
-    val currentPanel = remember { mutableStateOf(Panel.NONE) }
+    val currentPanel = rememberSaveable { mutableStateOf(Panel.NONE) }
     val panelHeight by monitorKeyboardHeight()
 
     val keyboardManager = rememberKeyboardManager()
     val keyboardController = remember { EditTextFieldController() }
     val isImeVisible = WindowInsets.isImeVisible
+    var isResumedFromBackground by rememberSaveable { mutableStateOf(false) }
 
-    var textField by remember { mutableStateOf("中国[微笑]国庆") }
+    var textField by rememberSaveable { mutableStateOf("中国[发财啦]国庆") }
+    var isKeyboardLastShown by rememberSaveable { mutableStateOf(textField.isNotEmpty()) }
 
+    val emojis by rememberSaveable { mutableStateOf(Emoji.instance.emojiIcons) }
+    val lazyGridState = rememberLazyGridState()
+    val editEvenFlow = remember { MutableSharedFlow<EditTextEvent>() }
+    val scope = rememberCoroutineScope()
 
-    val hidePanel = {
-        Log.e("TAG", "ChatScreen: hidePanel")
-        currentPanel.value = Panel.NONE
-    }
+    val hidePanel = { currentPanel.value = Panel.NONE }
+
+    val window = (LocalContext.current as? Activity)?.window
 
     LaunchedEffect(Unit) {
         keyboardManager.addOnDirectionChangedListener {
+            //记录最后一次键盘的显示状态
+            isKeyboardLastShown = it == KeyboardManager.DIRECTION_UP
+
             //如果键盘正在升起时，Panel是开启状态，就将Panel隐藏
-            if (it == KeyboardManager.DIRECTION_UP && currentPanel.value == Panel.EMOJI) {
+            if (isKeyboardLastShown && currentPanel.value == Panel.EMOJI) {
                 hidePanel()
             }
-            Log.e("TAG", "rememberKeyboardManager: Direction = $it")
+            Log.e("TAG", "rememberKeyboardManager,InsetsController: Direction = $it")
+        }
+
+        if (textField.isNotEmpty()) {
+            keyboardController.requestFocus()
+            //跳转页面再返回当前页面时，UI被重构，所以需要限制软键盘的显示
+            if (isKeyboardLastShown) keyboardController.showSoftKeyboard()
         }
     }
 
-
-
-    BackHandler(currentPanel.value == Panel.EMOJI) {
-        Log.e("TAG", "ChatScreen: BackHandler")
-        hidePanel()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (isResumedFromBackground) {
+                    Log.e(
+                        "TAG",
+                        "lifecycleOwner,InsetsController: isKeyboardLastShown = $isKeyboardLastShown"
+                    )
+                    //SOFT_INPUT_ADJUST_RESIZE模式且EditText有焦点的情况下，从后台到前台时会默认弹起键盘。
+                    //所以需要根据上次的键盘状态来判断是否需要添加 SOFT_INPUT_STATE_HIDDEN 来强制回到前台后不弹起键盘
+                    val flag = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                            if (!isKeyboardLastShown) WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN else 0
+                    window?.setSoftInputMode(flag)
+                }
+                //记录是否是从后台的ON_RESUME，除了第一次ON_RESUME，其它均视为后台
+                isResumedFromBackground = true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
+    DisposableEffect(navController) {
+        val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
+            //跳转页面时隐藏软键盘
+            if (destination.route != Route.Chat.route){
+                keyboardController.hideSoftKeyboard()
+            }
+        }
+        navController.addOnDestinationChangedListener(listener)
+        onDispose { navController.removeOnDestinationChangedListener(listener) }
+    }
+
+    BackHandler(currentPanel.value == Panel.EMOJI) { hidePanel() }
 
     Scaffold(
         topBar = {
@@ -140,6 +214,14 @@ fun ChatScreen(
                             painter = rememberVectorPainter(Icons.AutoMirrored.Outlined.ArrowBack),
                             contentDescription = "",
                             modifier = Modifier.size(25.dp)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { navController.navigate(Route.Other.route) }) {
+                        Icon(
+                            rememberVectorPainter(Icons.Filled.MoreVert),
+                            contentDescription = null
                         )
                     }
                 })
@@ -177,6 +259,7 @@ fun ChatScreen(
                 ChatInputArea2(
                     textField,
                     keyboardController,
+                    editEvenFlow,
                     currentPanel.value,
                     onInputTextChanged = {
                         textField = it
@@ -194,8 +277,50 @@ fun ChatScreen(
                         .align(Alignment.BottomCenter)
                         .height(panelHeight)
                         .background(MaterialTheme.colorScheme.surface)
-                        .navigationBarsPadding()
-                )
+                        .navigationBarsPadding(),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp)
+                    ) {
+                        LazyVerticalGrid(
+                            state = lazyGridState,
+                            modifier = Modifier
+                                .fillMaxSize(),
+                            contentPadding = PaddingValues(top = 12.dp, bottom = 42.dp),
+                            columns = GridCells.Fixed(8),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            itemsIndexed(
+                                emojis,
+                                key = { index, item -> item.emoji }) { index, item ->
+                                Image(
+                                    painterResource(item.icon),
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .align(Alignment.Center)
+                                        .clickable(onClick = {
+                                            textField += item.emoji
+                                        }),
+                                    contentDescription = item.emoji,
+                                )
+                            }
+                        }
+
+
+
+                        IconButton(onClick = {
+                            scope.launch { editEvenFlow.emit(EditTextEvent.Delete) }
+                        }, modifier = Modifier.align(Alignment.BottomEnd)) {
+                            Image(
+                                painterResource(R.drawable.ic_emoji_delete),
+                                contentDescription = "删除"
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -206,6 +331,7 @@ fun ChatScreen(
 private fun ChatInputArea2(
     textField: String,
     keyboardController: EditTextFieldController,
+    editEventFlow: SharedFlow<EditTextEvent>,
     currentPanel: Panel = Panel.NONE,
     onInputTextChanged: (String) -> Unit,
     onSendMessage: () -> Unit,
@@ -244,12 +370,6 @@ private fun ChatInputArea2(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (textField.isNotEmpty()) {
-            keyboardController.showSoftKeyboard()
-        }
-    }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -261,6 +381,7 @@ private fun ChatInputArea2(
 
         EditTextField(
             keyboardController,
+            editEventFlow,
             Modifier
                 .weight(1.0f)
                 .background(Color(0xFFF0F0F0), RoundedCornerShape(8.dp))

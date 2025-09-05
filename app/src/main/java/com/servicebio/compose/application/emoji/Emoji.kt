@@ -10,7 +10,10 @@ class Emoji {
 
         val instance by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { Emoji() }
     }
-    private val emojiIcons = ArrayList<EmojiModel>(100)
+    private val _emojiIcons = ArrayList<EmojiModel>(100)
+    val emojiIcons
+        get() = _emojiIcons.toList()
+
     val emojiIconMap = LinkedHashMap<String, Int>(100)
 
     init {
@@ -139,7 +142,7 @@ class Emoji {
             emojiIconMap.entries
 
         sets.forEach {
-            emojiIcons.add(EmojiModel(it.value, it.key))
+            _emojiIcons.add(EmojiModel(it.value, it.key))
         }
     }
 
@@ -161,4 +164,5 @@ class Emoji {
         }
         return null
     }
+
 }

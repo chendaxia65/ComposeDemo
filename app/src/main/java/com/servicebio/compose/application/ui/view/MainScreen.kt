@@ -1,6 +1,5 @@
 package com.servicebio.compose.application.ui.view
 
-import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -13,7 +12,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -23,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import com.servicebio.compose.application.MainViewModel
 import com.servicebio.compose.application.component.BottomNavigationBar
-import com.servicebio.compose.application.component.Material3NavigationBar
 import com.servicebio.compose.application.component.PagerScaffold
 import com.servicebio.compose.application.model.TopLevelDestination
 import kotlinx.coroutines.launch

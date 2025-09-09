@@ -12,6 +12,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -35,10 +36,10 @@ fun MainScreen(
 
     val pageSata = rememberPagerState(currentPageIndex) { TopLevelDestination.entries.size }
 
-//    LaunchedEffect(pageSata.currentPage) {
-//        viewModel.updateDestination(pageSata.currentPage)
-//        pageSata.animateScrollToPage(pageSata.currentPage)
-//    }
+    LaunchedEffect(pageSata.currentPage) {
+        viewModel.updateDestination(pageSata.currentPage)
+        pageSata.animateScrollToPage(pageSata.currentPage)
+    }
 
     PagerScaffold(
         modifier = Modifier.fillMaxSize(),

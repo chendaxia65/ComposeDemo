@@ -8,9 +8,9 @@ import android.text.style.ImageSpan
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.withSave
 
-class EmojiImageSpan (
+class EmojiImageSpan private constructor (
     private val drawable: Drawable,
-    private val scaleFactor: Float = 1.15f
+    private val scaleFactor: Float = 1.3f
 ) : ImageSpan(drawable) {
 
     override fun getSize(

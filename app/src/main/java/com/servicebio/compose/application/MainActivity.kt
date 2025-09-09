@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -23,6 +24,7 @@ import com.servicebio.compose.application.ui.theme.ComposeDemoTheme
 import com.servicebio.compose.application.ui.view.ChatScreen
 import com.servicebio.compose.application.ui.view.MainScreen
 import com.servicebio.compose.application.ui.view.OtherScreen
+import com.servicebio.compose.application.viewmodel.ChatViewModel
 import kotlinx.serialization.json.Json
 
 class MainActivity : ComponentActivity() {
@@ -75,7 +77,9 @@ class MainActivity : ComponentActivity() {
 
                         val conversation =
                             conversationJson?.let { json -> Json.decodeFromString<Conversation>(json.decodeUri()) }
-                        ChatScreen(navController, conversation)
+
+                        val viewModel = viewModel<ChatViewModel>(it)
+                        ChatScreen(navController, conversation,viewModel)
                     }
 
                     composable(Route.Other.route) {

@@ -76,6 +76,8 @@ fun EditTextField(
                 )
                 //震动触感
                 editAndroidView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            } else if (editTextEvent is EditTextEvent.Shock) {
+                editAndroidView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
         }
     }
@@ -171,7 +173,7 @@ class EditTextFieldController() {
         editText?.requestFocus()
     }
 
-    fun clearFocus(){
+    fun clearFocus() {
         editText?.clearFocus()
     }
 

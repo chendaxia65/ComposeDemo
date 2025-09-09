@@ -1,13 +1,17 @@
 package com.servicebio.compose.application.component
 
 import android.os.Build
+import android.util.Log
 import android.view.View
 import android.view.ViewTreeObserver
 import androidx.annotation.IntDef
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -19,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.node.Ref
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
@@ -85,6 +90,64 @@ fun monitorKeyboardHeight(): State<Dp> {
     }
 
     return rememberUpdatedState(imeHeight)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun rememberPanelPadding2(
+    keyboardManager: KeyboardManager,
+    isPanelOpened: Boolean
+): State<PaddingValues> {
+    val density = LocalDensity.current
+    val navigationBars = WindowInsets.navigationBars
+
+    val panelRef = remember { Ref<Boolean>().apply { value = false } }
+
+    val keyboardStateRef = remember {
+        Ref<KeyboardSate>().apply {
+            value = KeyboardSate.of(density, navigationBars, 336.dp)
+        }
+    }
+
+
+    val keyboardState = keyboardStateRef.value!!
+
+    val imeBottom by keyboardManager.height
+
+    LaunchedEffect(keyboardManager) {
+        keyboardManager.addOnAnimationEndListener {
+            if (it > 0.dp) {
+                if (keyboardState.imeHeight != it) {
+                    keyboardStateRef.value =
+                        KeyboardSate.of(density, navigationBars, it)
+                }
+                //键盘完全升起，说明Panel已经不显示了
+                panelRef.value = false
+            }
+        }
+    }
+
+    if (isPanelOpened) panelRef.value = true
+
+    val oldPanelState = panelRef.value ?: false
+
+    val navBottom = WindowInsets.navigationBars.asPaddingValues()
+    val imeHeight = (imeBottom - navBottom.calculateBottomPadding()).coerceAtLeast(0.dp)
+
+    Log.e("TAG", "ChatScreen: imeHeight $imeHeight")
+
+
+    //如果是打开Panel 或者 在键盘显示之前Panel已经是开启状态，就使用固定Padding
+    val height = if (isPanelOpened || (WindowInsets.isImeVisible && oldPanelState)) {//
+        if (imeHeight > keyboardState.imePadding) imeHeight else keyboardState.imePadding
+    } else {
+        imeHeight
+    }
+
+    //如果padding 为0时 说明Panel或键盘都已经收起了 恢复到默认状态
+    if (height == 0.dp) panelRef.value = false
+
+    return rememberUpdatedState(PaddingValues(bottom = height))
 }
 
 @Composable
@@ -177,7 +240,7 @@ private class GlobalLayoutListener(
         val screenHeight = decorView.height
         val keyboardHeight = screenHeight - rect.bottom
 
-        if(oldKeyboardHeight == keyboardHeight) return
+        if (oldKeyboardHeight == keyboardHeight) return
 
         oldKeyboardHeight = keyboardHeight
 

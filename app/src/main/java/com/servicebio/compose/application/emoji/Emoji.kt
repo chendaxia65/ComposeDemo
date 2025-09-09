@@ -1,6 +1,21 @@
 package com.servicebio.compose.application.emoji
 
 import android.text.Spannable
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import com.servicebio.compose.application.R
 import java.util.regex.Pattern
 
@@ -10,11 +25,14 @@ class Emoji {
 
         val instance by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { Emoji() }
     }
+
     private val _emojiIcons = ArrayList<EmojiModel>(100)
     val emojiIcons
         get() = _emojiIcons.toList()
 
     val emojiIconMap = LinkedHashMap<String, Int>(100)
+
+    private val tokenRegex by lazy { Regex(emojiIconMap.keys.joinToString("|") { Regex.escape(it) }) }
 
     init {
         emojiIconMap["[微笑]"] = R.drawable.img001
@@ -152,7 +170,7 @@ class Emoji {
     private val mMatcher = mPattern.matcher("")
 
 
-      fun find(text: Spannable, startIndex: Int): EmojiModel? {
+    fun find(text: Spannable, startIndex: Int): EmojiModel? {
         if (text[startIndex] == '[') {
             mMatcher.reset(text.subSequence(startIndex, text.length))
             if (mMatcher.find()) {
@@ -163,6 +181,44 @@ class Emoji {
             }
         }
         return null
+    }
+
+    fun toAnnotatedString(text: String): AnnotatedString {
+        return buildAnnotatedString {
+            var lastIndex = 0
+            tokenRegex.findAll(text).forEach { match ->
+                append(text.substring(lastIndex, match.range.first))
+                appendInlineContent(match.value, match.value)
+                lastIndex = match.range.last + 1
+            }
+
+            if (lastIndex < text.length) {
+                append(text.substring(lastIndex))
+            }
+        }
+    }
+
+    @Composable
+    fun inlineContentMap(): Map<String, InlineTextContent> {
+        val density = LocalDensity.current
+        return remember(density) {
+            emojiIconMap.mapValues { (key, resId) ->
+                InlineTextContent(
+                    placeholder = Placeholder(
+                        20.sp,
+                        20.sp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextBottom
+                    )
+                ) {
+                    val dpValue: Dp = with(density) { 20.sp.toDp() }
+                    Image(
+                        painter = painterResource(resId),
+                        contentDescription = key,
+                        modifier = Modifier.size(dpValue)
+                    )
+                }
+            }
+        }
     }
 
 }

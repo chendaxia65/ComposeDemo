@@ -5,7 +5,14 @@ import android.app.Activity
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -77,7 +84,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -99,7 +105,9 @@ import com.servicebio.compose.application.emoji.EditTextEvent
 import com.servicebio.compose.application.emoji.EditTextField
 import com.servicebio.compose.application.emoji.EditTextFieldController
 import com.servicebio.compose.application.emoji.Emoji
+import com.servicebio.compose.application.ext.getResultStateFlow
 import com.servicebio.compose.application.ext.noRippleClickable
+import com.servicebio.compose.application.ext.removeKey
 import com.servicebio.compose.application.model.Conversation
 import com.servicebio.compose.application.model.Message
 import com.servicebio.compose.application.model.Panel
@@ -121,8 +129,6 @@ fun ChatScreen(
     viewModel: ChatViewModel
 ) {
 
-    val scope = rememberCoroutineScope()
-
     val textContent by viewModel.messageTextContent.collectAsState()
 
     val bottomPanel by viewModel.bottomPanel.collectAsState()
@@ -135,11 +141,12 @@ fun ChatScreen(
 
     var isKeyboardLastShown by rememberSaveable { mutableStateOf(textContent.isNotEmpty()) }
 
-    val emojis by rememberSaveable { mutableStateOf(Emoji.instance.emojiIcons) }
-    val lazyGridState = rememberLazyGridState()
     val editEventFlow = remember { MutableSharedFlow<EditTextEvent>() }
 
     val hidePanel = { viewModel.updatePanel(Panel.NONE) }
+
+    //接收二级页面返回时携带的数据
+    val screenResultFlow = navController.getResultStateFlow("result", "")
 
     LaunchedEffect(Unit) {
         keyboardManager.addOnDirectionChangedListener {
@@ -147,16 +154,21 @@ fun ChatScreen(
             isKeyboardLastShown = it == KeyboardManager.DIRECTION_UP
 
             //如果键盘正在升起时，Panel是开启状态，就将Panel隐藏
-            if (isKeyboardLastShown && bottomPanel == Panel.EMOJI) {
+            if (isKeyboardLastShown && bottomPanel.isOpened()) {
                 hidePanel()
             }
             Log.e("TAG", "rememberKeyboardManager,InsetsController: Direction = $it")
         }
 
-        if (textContent.isNotEmpty()) {
+        if (textContent.isNotEmpty() || bottomPanel == Panel.EMOJI) {
             keyboardController.requestFocus()
             //跳转页面再返回当前页面时，UI被重构，所以需要限制软键盘的显示
             if (isKeyboardLastShown) keyboardController.showSoftKeyboard()
+        }
+
+        screenResultFlow?.collect {
+            if (it.isNotEmpty()) viewModel.updateTextContent(it)
+            navController.removeKey<String>("result")
         }
     }
 
@@ -197,7 +209,7 @@ fun ChatScreen(
         }
     }
 
-    BackHandler(bottomPanel == Panel.EMOJI) { hidePanel() }
+    BackHandler(bottomPanel.isOpened()) { hidePanel() }
 
     Scaffold(
         topBar = { ChatAppBar(conversation, keyboardController, navController) },
@@ -219,48 +231,21 @@ fun ChatScreen(
                 editEventFlow.asSharedFlow()
             )
 
-            if (bottomPanel == Panel.EMOJI) {
+            val animaPanelHeight by animateDpAsState(if(bottomPanel.isOpened()) panelHeight else 0.dp)
+            if (animaPanelHeight > 0.dp) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .height(panelHeight)
+                        .height(animaPanelHeight)
                         .background(MaterialTheme.colorScheme.surface)
-                        .navigationBarsPadding(),
+                        .navigationBarsPadding()
+                        .padding(horizontal = 12.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 12.dp)
-                    ) {
-                        LazyVerticalGrid(
-                            state = lazyGridState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = 12.dp, bottom = 42.dp),
-                            columns = GridCells.Fixed(8),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            itemsIndexed(
-                                emojis,
-                                key = { index, item -> item.emoji }) { index, item ->
-                                Image(
-                                    painterResource(item.icon),
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(CircleShape)
-                                        .align(Alignment.Center)
-                                        .clickable(onClick = {
-                                            scope.launch { editEventFlow.emit(EditTextEvent.Shock) }
-                                            viewModel.appendTextContent(item.emoji)
-                                        }),
-                                    contentDescription = item.emoji,
-                                )
-                            }
-                        }
-
-                        DeleteButton(onEvent = {
-                            editEventFlow.emit(EditTextEvent.Delete)
-                        })
+                    if (bottomPanel == Panel.EMOJI) {
+                        PanelEmoji(viewModel, editEventFlow)
+                    } else if (bottomPanel == Panel.MORE) {
+                        PanelMore()
                     }
                 }
             }
@@ -314,14 +299,15 @@ private fun ChatContent(
     val textContent by viewModel.messageTextContent.collectAsState()
     val bottomPanel by viewModel.bottomPanel.collectAsState()
 
+    // 当键盘弹起或Panel显示时，需要增加底部的padding，避免内容被遮挡
+    val resizeBottom by rememberPanelPadding2(keyboardManager, bottomPanel.isOpened())
+
     val messages by viewModel.messages.collectAsState()
 
     val scope = rememberCoroutineScope()
     val isImeVisible = WindowInsets.isImeVisible
     val listState = rememberLazyListState()
 
-    // 当键盘弹起或Panel显示时，需要增加底部的padding，避免内容被遮挡
-    val resizeBottom by rememberPanelPadding2(keyboardManager, bottomPanel.isOpened())
 
     LaunchedEffect(keyboardManager) {
         keyboardManager.addOnDirectionChangedListener {
@@ -442,7 +428,10 @@ private fun MessageInCell(message: Message, displayAvatar: Boolean) {
 @Composable
 private fun rememberAvatarHeight(): State<Dp> {
     val textMeasurer = rememberTextMeasurer()
-    val textHeight = textMeasurer.measure("中", style = LocalTextStyle.current.copy(fontSize = 16.sp)).size.height
+    val textHeight = textMeasurer.measure(
+        "中",
+        style = LocalTextStyle.current.copy(fontSize = 16.sp)
+    ).size.height
     val textHeightDp = with(LocalDensity.current) { textHeight.toDp() }
 
     return rememberUpdatedState(textHeightDp + 16.dp)
@@ -482,17 +471,11 @@ private fun MessageOutCell(message: Message, displayAvatar: Boolean) {
 
 @Composable
 private fun MessageText(message: Message) {
-    val emojiEngine = remember { Emoji.instance }
-    val density = LocalDensity.current
-
     Text(
-        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp) .onGloballyPositioned{
-            val height = with(density){it.size.height.toDp()}
-            Log.e("TAG", "onGloballyPositioned: viewHeight = $height", )
-        },
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
         fontSize = 16.sp,
-        text = emojiEngine.toAnnotatedString(message.message),
-        inlineContent = emojiEngine.inlineContentMap()
+        text = Emoji.instance.toAnnotatedString(message.message),
+        inlineContent = Emoji.instance.inlineContentMap()
     )
 }
 
@@ -553,46 +536,38 @@ private fun ChatInputArea2(
             Modifier
                 .weight(1.0f)
                 .background(Color(0xFFF0F0F0), RoundedCornerShape(8.dp))
-                .heightIn(max = 150.dp), interactionSource = interactionSource,
+                .heightIn(max = 150.dp),
+            interactionSource = interactionSource,
             initialText = textContent
         ) {
             onInputTextChanged(it)
         }
 
         Spacer(modifier = Modifier.width(6.dp))
-        Box(
-            modifier = Modifier
-                .clip(CircleShape)
-                .size(32.dp)
-                .noRippleClickable {
-                    val emojiOpened = bottomPanel == Panel.EMOJI
-                    if (emojiOpened) {
-                        if (hasFocus) {
-                            keyboardController.showSoftKeyboard()
-                        } else {
-                            keyboardController.requestFocus()
-                        }
-                    } else {
-                        if (!hasFocus) keyboardController.requestFocus()
-                        keyboardController.hideSoftKeyboard()
-                        onPanelChanged(Panel.EMOJI)
-                    }
-                }
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_emoji_good),
-                contentDescription = null,
-                tint = if (bottomPanel == Panel.EMOJI) MaterialTheme.colorScheme.primary else LocalContentColor.current
-            )
+
+        SwitchPanelButton(R.drawable.ic_emoji_good, bottomPanel == Panel.EMOJI) {
+            val emojiOpened = bottomPanel == Panel.EMOJI
+            if (emojiOpened) {
+                keyboardController.showSoftKeyboard()
+            } else {
+                if (!hasFocus) keyboardController.requestFocus()
+                keyboardController.hideSoftKeyboard()
+                onPanelChanged(Panel.EMOJI)
+            }
         }
+
+        Spacer(modifier = Modifier.width(6.dp))
 
         AnimatedContent(
             targetState = textContent.isNotEmpty(),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
+            transitionSpec = {
+                (fadeIn() + scaleIn(initialScale = 0.5f))
+                    .togetherWith(exit = fadeOut() + scaleOut(targetScale = 0.5f))
+            }
         ) { state ->
             if (state) {
                 Row {
-                    Spacer(modifier = Modifier.width(6.dp))
                     TextButton(
                         onClick = {
                             onSendMessage()
@@ -605,10 +580,67 @@ private fun ChatInputArea2(
                         Text(text = "发送", color = Color.White)
                     }
                 }
+            } else {
+                SwitchPanelButton(R.drawable.ic_add_circle, bottomPanel == Panel.MORE) {
+                    val moreOpened = bottomPanel == Panel.MORE
+                    if (moreOpened) {
+                        keyboardController.showSoftKeyboard()
+                    } else {
+                        if (hasFocus) keyboardController.clearFocus()
+                        keyboardController.hideSoftKeyboard()
+                        onPanelChanged(Panel.MORE)
+                    }
+                }
             }
         }
-
     }
+}
+
+
+@Composable
+private fun BoxScope.PanelEmoji(
+    viewModel: ChatViewModel,
+    editEventFlow: MutableSharedFlow<EditTextEvent>
+) {
+    val scope = rememberCoroutineScope()
+
+    val emojis by rememberSaveable { mutableStateOf(Emoji.instance.emojiIcons) }
+    val lazyGridState = rememberLazyGridState()
+
+    LazyVerticalGrid(
+        state = lazyGridState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 42.dp),
+        columns = GridCells.Fixed(8),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        itemsIndexed(
+            emojis,
+            key = { index, item -> item.emoji }) { index, item ->
+            Image(
+                painterResource(item.icon),
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .align(Alignment.Center)
+                    .clickable(onClick = {
+                        scope.launch { editEventFlow.emit(EditTextEvent.Shock) }
+                        viewModel.appendTextContent(item.emoji)
+                    }),
+                contentDescription = item.emoji,
+            )
+        }
+    }
+
+    DeleteButton(onEvent = {
+        editEventFlow.emit(EditTextEvent.Delete)
+    })
+}
+
+@Composable
+private fun BoxScope.PanelMore() {
+
+    Text("More more more...", modifier = Modifier.align(Alignment.Center))
 }
 
 @Composable
@@ -644,7 +676,32 @@ private fun BoxScope.DeleteButton(onEvent: suspend () -> Unit) {
             contentDescription = "删除"
         )
     }
+}
 
+@Composable
+private fun SwitchPanelButton(@DrawableRes id: Int, isChecked: Boolean, onClick: () -> Unit) {
+//    Box(
+//        modifier = Modifier
+//            .clip(CircleShape)
+//            .size(32.dp)
+//            .noRippleClickable(onClick)
+//    ) {
+//        Icon(
+//            painter = painterResource(id),
+//            contentDescription = null,
+//            tint = if (isChecked) MaterialTheme.colorScheme.primary else LocalContentColor.current
+//        )
+//    }
+
+    Icon(
+        modifier = Modifier
+            .clip(CircleShape)
+            .size(32.dp)
+            .noRippleClickable(onClick),
+        painter = painterResource(id),
+        contentDescription = null,
+        tint = if (isChecked) MaterialTheme.colorScheme.primary else LocalContentColor.current
+    )
 }
 
 

@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,16 +67,16 @@ fun ConversationListScreen(
 
     val conversationList by viewModel.conversations.collectAsState()
 
-    val appBarHeight = rememberSaveable { mutableFloatStateOf(0f) }
-    val appBarOffsetPx = rememberSaveable { mutableFloatStateOf(0f) }
+    var appBarHeight by rememberSaveable { mutableFloatStateOf(0f) }
+    var appBarOffsetPx by rememberSaveable { mutableFloatStateOf(0f) }
 
 
     val nestedScroll = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delay = available.y
-                val newOffset = appBarOffsetPx.floatValue + delay
-                appBarOffsetPx.floatValue = newOffset.coerceIn(-appBarHeight.floatValue, 0f)
+                val newOffset = appBarOffsetPx + delay
+                appBarOffsetPx = newOffset.coerceIn(-appBarHeight, 0f)
                 return super.onPreScroll(available, source)
             }
         }
@@ -89,19 +90,19 @@ fun ConversationListScreen(
                 }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 modifier = Modifier
 //                    .offset {
-//                        IntOffset(x = 0, y = appBarOffsetPx.floatValue.roundToInt())
+//                        IntOffset(x = 0, y = appBarOffsetPx.roundToInt())
 //                    }
                     .graphicsLayer {
-                        translationY = appBarOffsetPx.floatValue
+                        translationY = appBarOffsetPx
                     }
                     .onGloballyPositioned {
-                        appBarHeight.floatValue = it.size.height.toFloat()
+                        appBarHeight = it.size.height.toFloat()
                     })
         },
         modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
         val paddingTopOffset =
-            with(LocalDensity.current) { (appBarHeight.floatValue + appBarOffsetPx.floatValue).toDp() }
+            with(LocalDensity.current) { (appBarHeight + appBarOffsetPx).toDp() }
 
         Box(
             modifier = Modifier
@@ -113,19 +114,25 @@ fun ConversationListScreen(
                     )
                 )
         ) {
-            if(conversationList.isNotEmpty()){
+            if (conversationList.isNotEmpty()) {
                 LazyColumn(
                     modifier = Modifier
                         .background(Color.White)
                         .nestedScroll(nestedScroll)
                 ) {
-                    itemsIndexed(conversationList, key = { index, item -> item.id }) { index, item ->
+                    itemsIndexed(
+                        conversationList,
+                        key = { index, item -> item.id }) { index, item ->
                         ConversationItem(item) {
-                            navController.navigate(Route.Chat.buildRoute(item)){
-                                launchSingleTop = true//如果要启动的在栈顶就复用
+                            navController.navigate(Route.Chat.buildRoute(item)) {
+                                launchSingleTop = true//如果要启动的在栈顶就复用(singleTop)
                                 restoreState = true//保存状态，使用rememberSaveable保证跳转页面后数据恢复
+                                //出栈操作，一直出栈到指定路由(类似于singleTask)
+                                popUpTo(Route.Chat.route) {
+                                    //包含当前页面也出栈
+                                    inclusive = true
+                                }
                             }
-
                         }
                         if (index != conversationList.lastIndex)
                             HorizontalDivider(
@@ -144,15 +151,15 @@ private fun ConversationItem(item: Conversation, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(82.dp)
+            .height(72.dp)
             .clickable { onClick() }
-            .padding(16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically
+            .padding(12.dp, 12.dp), verticalAlignment = Alignment.CenterVertically
     ) {
         Image(
             painter = painterResource(item.avatarResId),
             contentDescription = null,
             modifier = Modifier
-                .size(58.dp)
+                .size(48.dp)
                 .clip(RoundedCornerShape(10.dp))
         )
 

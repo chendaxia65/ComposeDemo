@@ -47,7 +47,7 @@ class ChatViewModel : ViewModel() {
             updateTextContent("")
             val newList = _messages.value.toMutableList()
             newList.add(0, Message("Send", true, text, System.currentTimeMillis()))
-            if (text == "Ok") {
+            if (text.lowercase() == "ok") {
                 newList.add(0, Message("Receive", false, text, System.currentTimeMillis()))
             }
             _messages.emit(newList)

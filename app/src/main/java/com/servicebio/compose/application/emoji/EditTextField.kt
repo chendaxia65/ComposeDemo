@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.os.Build
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.View
@@ -21,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.node.Ref
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
 
 @Composable
 fun EditTextField(
@@ -43,6 +46,8 @@ fun EditTextField(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+
+    val scope = rememberCoroutineScope()
 
     val preFocus = remember { Ref<FocusInteraction.Focus>() }
     val emojiSize by remember { mutableIntStateOf(with(density) { 16.sp.toPx() }.toInt()) }
@@ -97,12 +102,13 @@ fun EditTextField(
             }
             editText.includeFontPadding = false
             editText.onFocusChangeListener = View.OnFocusChangeListener { v, hasFocus ->
+                Log.d("interactionSource", "hasFocus = $hasFocus")
                 val interaction = if (hasFocus) {
                     FocusInteraction.Focus().also { preFocus.value = it }
                 } else {
                     preFocus.value?.let { FocusInteraction.Unfocus(it) }
                 }
-                interaction?.let { interactionSource.tryEmit(it) }
+                interaction?.let { scope.launch { interactionSource.emit(it) } }
             }
 
 //            editText.setOnTouchListener { v, event ->

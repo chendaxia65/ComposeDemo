@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewTreeObserver
 import androidx.annotation.IntDef
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -20,6 +21,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -33,7 +35,9 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.launch
 
 data class KeyboardSate(val imeHeight: Dp, val imeHeightPx: Int, val imePadding: Dp) {
     companion object {
@@ -101,7 +105,9 @@ fun rememberPanelPadding2(
     val density = LocalDensity.current
     val navigationBars = WindowInsets.navigationBars
 
-    val panelRef = remember { Ref<Boolean>().apply { value = false } }
+    val lastShown = remember { Ref<Boolean>().apply { value = false } }
+    val lastHeight = remember { Ref<Dp>().apply { value = 0.dp } }
+
 
     val keyboardStateRef = remember {
         Ref<KeyboardSate>().apply {
@@ -109,43 +115,52 @@ fun rememberPanelPadding2(
         }
     }
 
-
     val keyboardState = keyboardStateRef.value!!
 
-    val imeBottom by keyboardManager.height
 
-    LaunchedEffect(keyboardManager) {
+    LaunchedEffect(Unit) {
         keyboardManager.addOnAnimationEndListener {
             if (it > 0.dp) {
                 if (keyboardState.imeHeight != it) {
                     keyboardStateRef.value =
                         KeyboardSate.of(density, navigationBars, it)
                 }
-                //键盘完全升起，说明Panel已经不显示了
-                panelRef.value = false
             }
+            lastShown.value = it > 0.dp
+        }
+    }
+    val animPanelHeight by animateDpAsState(if (isPanelOpened) keyboardState.imePadding else 0.dp)
+
+    val updateDone: (Dp) -> Unit = {
+        if (it == 0.dp || it == keyboardState.imePadding) {
+            lastHeight.value = it
         }
     }
 
-    if (isPanelOpened) panelRef.value = true
+    val oldPanelState = lastHeight.value == keyboardState.imePadding
 
-    val oldPanelState = panelRef.value ?: false
+    //如果开启Panel 并且 Panel已经是开启状态 就返回固定Padding
+    if (isPanelOpened && oldPanelState) {
+        return rememberUpdatedState(PaddingValues(bottom = keyboardState.imePadding))
+    } else if (!WindowInsets.isImeVisible && lastShown.value == false) {//如果键盘没有展开并且之前也没有被展开，这次操作视为开启或隐藏Panel，执行animateDpAsState
+        updateDone(animPanelHeight)
+        return rememberUpdatedState(PaddingValues(bottom = animPanelHeight))
+    }
 
+    val imeBottom by keyboardManager.height
     val navBottom = WindowInsets.navigationBars.asPaddingValues()
     val imeHeight = (imeBottom - navBottom.calculateBottomPadding()).coerceAtLeast(0.dp)
 
-    Log.e("TAG", "ChatScreen: imeHeight $imeHeight")
+    Log.d("TAG", "rememberPanelPadding2: imeHeight $imeHeight")
 
-
-    //如果是打开Panel 或者 在键盘显示之前Panel已经是开启状态，就使用固定Padding
-    val height = if (isPanelOpened || (WindowInsets.isImeVisible && oldPanelState)) {//
+    //如果在键盘显示之前Panel已经是开启状态，就使用固定Padding
+    val height = if ((WindowInsets.isImeVisible && oldPanelState)) {
         if (imeHeight > keyboardState.imePadding) imeHeight else keyboardState.imePadding
     } else {
         imeHeight
     }
 
-    //如果padding 为0时 说明Panel或键盘都已经收起了 恢复到默认状态
-    if (height == 0.dp) panelRef.value = false
+    updateDone(height)
 
     return rememberUpdatedState(PaddingValues(bottom = height))
 }
@@ -154,6 +169,7 @@ fun rememberPanelPadding2(
 fun rememberKeyboardManager(): KeyboardManager {
     //android:windowSoftInputMode="adjustResize"
 
+    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val ime = WindowInsets.ime.asPaddingValues()
     val navigationBars = WindowInsets.navigationBars
@@ -170,9 +186,15 @@ fun rememberKeyboardManager(): KeyboardManager {
         DisposableEffect(Unit) {
             val listener = WindowInsetsAnimationCallback(onProgress = {
                 imeHeight = toDp(it)
+                Log.d("TAG", "rememberPanelPadding2: onProgress")
+
                 manager.notifyMovementDirection(imeHeight)
             }, onAnimationEnd = {
-                manager.notifyAnimationEnd(ime.calculateBottomPadding())
+                scope.launch {
+                    delay(28)
+                    Log.d("TAG", "rememberPanelPadding2: onAnimationEnd")
+                    manager.notifyAnimationEnd(ime.calculateBottomPadding())
+                }
             })
 
             ViewCompat.setWindowInsetsAnimationCallback(view, listener)
@@ -192,7 +214,10 @@ fun rememberKeyboardManager(): KeyboardManager {
                     },
                     onAnimationEnd = {
                         imeHeight = toDp(it)
-                        manager.notifyAnimationEnd(imeHeight)
+                        scope.launch {
+                            delay(28)
+                            manager.notifyAnimationEnd(imeHeight)
+                        }
                     })
 
             view.viewTreeObserver.addOnGlobalLayoutListener(listener)
@@ -218,6 +243,7 @@ private class WindowInsetsAnimationCallback(
         insets: WindowInsetsCompat,
         runningAnimations: List<WindowInsetsAnimationCompat?>
     ): WindowInsetsCompat {
+        Log.e("WindowInsetsAnimationCallback", "onProgress: ")
         val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
         onProgress(imeInsets.bottom)
         return insets
@@ -298,8 +324,9 @@ class KeyboardManager internal constructor(val height: State<Dp>) {
         }
     }
 
-    internal fun notifyAnimationEnd(height: Dp) {
+    fun isMovement() = movementDirection != DIRECTION_UNKNOW
 
+    internal fun notifyAnimationEnd(height: Dp) {
         heightCached = M
         movementDirection = DIRECTION_UNKNOW
         animationListeners.forEach { it.invoke(height) }

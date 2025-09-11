@@ -60,7 +60,7 @@ fun monitorKeyboardHeight(): State<Dp> {
     val ime = WindowInsets.ime
     val density = LocalDensity.current
 
-    var imeHeight by remember { mutableStateOf(336.dp) }
+    var imeHeight by remember { mutableStateOf(288.dp) }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         LaunchedEffect(ime) {
@@ -111,7 +111,7 @@ fun rememberPanelPadding2(
 
     val keyboardStateRef = remember {
         Ref<KeyboardSate>().apply {
-            value = KeyboardSate.of(density, navigationBars, 336.dp)
+            value = KeyboardSate.of(density, navigationBars, 288.dp)
         }
     }
 

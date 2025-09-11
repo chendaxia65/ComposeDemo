@@ -1,4 +1,5 @@
 [versions]
+appName = "What"
 agp = "8.12.2"
 kotlin = "2.2.10"
 coreKtx = "1.17.0"

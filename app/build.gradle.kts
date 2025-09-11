@@ -45,6 +45,7 @@ android {
             signingConfig = signingConfigs["common"]
             // debug 模式下包名后缀
             applicationIdSuffix = ".debug"
+            manifestPlaceholders["appName"] = libs.versions.appName.get().plus("-dev")
         }
 
         release {
@@ -54,6 +55,7 @@ android {
             // 资源压缩
             isShrinkResources = true
             isDebuggable = false
+            manifestPlaceholders["appName"] = libs.versions.appName.get()
             // 配置ProGuard规则文件
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

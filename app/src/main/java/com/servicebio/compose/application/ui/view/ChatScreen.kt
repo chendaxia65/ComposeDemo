@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,7 +43,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -59,8 +57,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.ripple.rememberRipple
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -73,16 +69,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -95,19 +87,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -115,7 +104,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -127,10 +115,9 @@ import com.servicebio.compose.application.component.KeyboardManager
 import com.servicebio.compose.application.component.monitorKeyboardHeight
 import com.servicebio.compose.application.component.rememberKeyboardManager
 import com.servicebio.compose.application.component.rememberPanelPadding2
-import com.servicebio.compose.application.emoji.EditTextEvent
 import com.servicebio.compose.application.emoji.AndroidEditText
 import com.servicebio.compose.application.emoji.AndroidEditTextController
-import com.servicebio.compose.application.emoji.AndroidText
+import com.servicebio.compose.application.emoji.EditTextEvent
 import com.servicebio.compose.application.emoji.Emoji
 import com.servicebio.compose.application.ext.getResultStateFlow
 import com.servicebio.compose.application.ext.noRippleClickable
@@ -140,6 +127,7 @@ import com.servicebio.compose.application.model.Message
 import com.servicebio.compose.application.model.Panel
 import com.servicebio.compose.application.route.Route
 import com.servicebio.compose.application.utils.TimestampUtils
+import com.servicebio.compose.application.utils.showToast
 import com.servicebio.compose.application.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -349,11 +337,14 @@ private fun ChatContent(
     val listState = rememberLazyListState()
 
 
-    LaunchedEffect(keyboardManager) {
+    LaunchedEffect(keyboardManager, viewModel) {
         keyboardManager.addOnDirectionChangedListener {
             if (it == KeyboardManager.DIRECTION_UP) {
                 scope.launch { listState.animateScrollToItem(0) }
             }
+        }
+        viewModel.newMessageEvent.collect {
+            listState.animateScrollToItem(0)
         }
     }
 
@@ -383,7 +374,7 @@ private fun ChatContent(
                 state = listState,
                 reverseLayout = true
             ) {
-                itemsIndexed(messages, key = { index, item -> index }) { index, item ->
+                itemsIndexed(messages, key = { index, item -> item.id }) { index, item ->
                     val preMessage = messages.getOrNull(index + 1)
                     val nextMessage = messages.getOrNull(index - 1)
                     MessageContainer(viewModel, preMessage, item, nextMessage)
@@ -511,6 +502,7 @@ private fun RowScope.MessageText(viewModel: ChatViewModel, message: Message) {
     var pointOffset by remember { mutableStateOf(Offset.Zero) }
     var popupSize by remember { mutableStateOf(IntSize.Zero) }
     val popupSpace = remember(density) { with(density) { 20.dp.toPx() } }
+    val messageAnnotatedString = remember(message.message) { Emoji.instance.toAnnotatedString(message.message) }
 
     Box(
         modifier = Modifier
@@ -529,12 +521,17 @@ private fun RowScope.MessageText(viewModel: ChatViewModel, message: Message) {
             },
         contentAlignment = Alignment.Center,
     ) {
-        AndroidText(
-            message.message,
-            modifier = Modifier
-                .padding(horizontal = 10.dp, vertical = 8.dp)
+//        AndroidText(
+//            message.message,
+//            modifier = Modifier
+//                .padding(horizontal = 10.dp, vertical = 8.dp)
+//        )
+        Text(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            fontSize = 16.sp,
+            text = messageAnnotatedString,
+            inlineContent = Emoji.instance.inlineContentMap()
         )
-
         if (showPopup) {
             Popup(
                 offset = IntOffset(
@@ -546,16 +543,18 @@ private fun RowScope.MessageText(viewModel: ChatViewModel, message: Message) {
                     modifier = Modifier
                         .shadow(3.dp, shape = RoundedCornerShape(10.dp))
                         .background(Color.White)
+                        .onGloballyPositioned { popupSize = it.size }
                         .padding(horizontal = 16.dp, vertical = 10.dp)
-                        .onGloballyPositioned { popupSize = it.size }) {
-
+                ) {
                     ColumnButton("复制", R.drawable.icon_chat_copy) {
+                        showPopup = false
                         clipboard.nativeClipboard.setPrimaryClip(
                             ClipData.newPlainText(
                                 null,
                                 message.message
                             )
                         )
+                        showToast("复制成功")
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))
@@ -566,12 +565,6 @@ private fun RowScope.MessageText(viewModel: ChatViewModel, message: Message) {
                 }
             }
         }
-//        Text(
-//            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-//            fontSize = 16.sp,
-//            text = Emoji.instance.toAnnotatedString(message.message),
-//            inlineContent = Emoji.instance.inlineContentMap()
-//        )
     }
 }
 

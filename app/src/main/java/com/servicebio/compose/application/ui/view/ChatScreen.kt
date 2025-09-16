@@ -2,6 +2,7 @@ package com.servicebio.compose.application.ui.view
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ClipData
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -28,8 +29,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +44,8 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -54,6 +59,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,12 +73,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -81,29 +92,45 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import com.servicebio.compose.application.R
+import com.servicebio.compose.application.component.ColumnButton
 import com.servicebio.compose.application.component.KeyboardManager
 import com.servicebio.compose.application.component.monitorKeyboardHeight
 import com.servicebio.compose.application.component.rememberKeyboardManager
 import com.servicebio.compose.application.component.rememberPanelPadding2
 import com.servicebio.compose.application.emoji.EditTextEvent
-import com.servicebio.compose.application.emoji.EditTextField
-import com.servicebio.compose.application.emoji.EditTextFieldController
+import com.servicebio.compose.application.emoji.AndroidEditText
+import com.servicebio.compose.application.emoji.AndroidEditTextController
+import com.servicebio.compose.application.emoji.AndroidText
 import com.servicebio.compose.application.emoji.Emoji
 import com.servicebio.compose.application.ext.getResultStateFlow
 import com.servicebio.compose.application.ext.noRippleClickable
@@ -130,13 +157,13 @@ fun ChatScreen(
 ) {
 
     val textContent by viewModel.messageTextContent.collectAsState()
-
     val bottomPanel by viewModel.bottomPanel.collectAsState()
+    val showCustomBackground by viewModel.showCustomBackground.collectAsState()
 
     val panelHeight by monitorKeyboardHeight()
 
     val keyboardManager = rememberKeyboardManager()
-    val keyboardController = remember { EditTextFieldController() }
+    val keyboardController = remember { AndroidEditTextController() }
     var isResumedFromBackground by rememberSaveable { mutableStateOf(false) }
 
     var isKeyboardLastShown by rememberSaveable { mutableStateOf(textContent.isNotEmpty()) }
@@ -215,10 +242,21 @@ fun ChatScreen(
         topBar = { ChatAppBar(conversation, keyboardController, navController) },
         contentWindowInsets = ScaffoldDefaults.contentWindowInsets
             .exclude(WindowInsets.navigationBars)
+            .exclude(WindowInsets.statusBars)
             .exclude(WindowInsets.ime),
         modifier = Modifier
             .fillMaxSize()
     ) { innerPadding ->
+
+        if (showCustomBackground) {
+            Image(
+                modifier = Modifier.fillMaxSize(),
+                painter = painterResource(R.mipmap.chat_background),
+                contentScale = ContentScale.FillBounds,
+                contentDescription = null
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -231,7 +269,7 @@ fun ChatScreen(
                 editEventFlow.asSharedFlow()
             )
 
-            val animaPanelHeight by animateDpAsState(if(bottomPanel.isOpened()) panelHeight else 0.dp)
+            val animaPanelHeight by animateDpAsState(if (bottomPanel.isOpened()) panelHeight else 0.dp)
             if (animaPanelHeight > 0.dp) {
                 Box(
                     modifier = Modifier
@@ -257,16 +295,17 @@ fun ChatScreen(
 @Composable
 private fun ChatAppBar(
     conversation: Conversation?,
-    keyboardController: EditTextFieldController,
+    keyboardController: AndroidEditTextController,
     navController: NavHostController
 ) {
     val isImeVisible = WindowInsets.isImeVisible
+    val isImeVisibleUpdater by rememberUpdatedState(isImeVisible)
 
     CenterAlignedTopAppBar(
         title = { Text(text = conversation?.name ?: "Chat") },
         navigationIcon = {
             IconButton(onClick = {
-                if (isImeVisible) {
+                if (isImeVisibleUpdater) {
                     keyboardController.hideSoftKeyboard(true)
                 }
                 navController.popBackStack()
@@ -293,7 +332,7 @@ private fun ChatAppBar(
 private fun ChatContent(
     viewModel: ChatViewModel,
     keyboardManager: KeyboardManager,
-    keyboardController: EditTextFieldController,
+    keyboardController: AndroidEditTextController,
     editEventFlow: SharedFlow<EditTextEvent>
 ) {
     val textContent by viewModel.messageTextContent.collectAsState()
@@ -306,6 +345,7 @@ private fun ChatContent(
 
     val scope = rememberCoroutineScope()
     val isImeVisible = WindowInsets.isImeVisible
+    val isImeVisibleUpdater by rememberUpdatedState(isImeVisible)
     val listState = rememberLazyListState()
 
 
@@ -320,24 +360,25 @@ private fun ChatContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(resizeBottom)
-            .pointerInput(Unit) {
-                detectTapGestures(onPress = {
-                    if (bottomPanel.isOpened()) {
-                        viewModel.updatePanel(Panel.NONE)
-                    } else if (isImeVisible) {
-                        keyboardController.hideSoftKeyboard()
-                    }
-                })
-            }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f)
+
         ) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onPress = {
+                            if (bottomPanel.isOpened()) {
+                                viewModel.updatePanel(Panel.NONE)
+                            } else if (isImeVisibleUpdater) {
+                                keyboardController.hideSoftKeyboard()
+                            }
+                        })
+                    },
                 contentPadding = PaddingValues(12.dp),
                 state = listState,
                 reverseLayout = true
@@ -345,7 +386,7 @@ private fun ChatContent(
                 itemsIndexed(messages, key = { index, item -> index }) { index, item ->
                     val preMessage = messages.getOrNull(index + 1)
                     val nextMessage = messages.getOrNull(index - 1)
-                    MessageContainer(preMessage, item, nextMessage)
+                    MessageContainer(viewModel, preMessage, item, nextMessage)
                 }
             }
         }
@@ -365,17 +406,31 @@ private fun ChatContent(
             },
             onPanelChanged = { viewModel.updatePanel(it) }
         )
+
+        if (resizeBottom > 0.dp) {
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(resizeBottom)
+                    .background(MaterialTheme.colorScheme.surface)
+            )
+        }
     }
 }
 
 @Composable
-private fun MessageContainer(preMessage: Message?, message: Message, nextMessage: Message?) {
+private fun MessageContainer(
+    viewModel: ChatViewModel,
+    preMessage: Message?,
+    message: Message,
+    nextMessage: Message?
+) {
     val timeInterval = 300 * 1000L
     val preTime = (preMessage?.timestamp ?: 0) / timeInterval
     val time = message.timestamp / timeInterval
     val displayTime = preTime < time
 
-    val displayAvatar = message.id != nextMessage?.id
+    val displayAvatar = message.userId != nextMessage?.userId
 
     Column(modifier = Modifier.fillMaxWidth()) {
         if (displayTime) {
@@ -387,15 +442,13 @@ private fun MessageContainer(preMessage: Message?, message: Message, nextMessage
             )
         }
         Spacer(modifier = Modifier.height(6.dp))
-        if (message.isOut) MessageOutCell(message, displayAvatar) else MessageInCell(
-            message,
-            displayAvatar
-        )
+        if (message.isOut) MessageOutCell(viewModel, message, displayAvatar)
+        else MessageInCell(viewModel, message, displayAvatar)
     }
 }
 
 @Composable
-private fun MessageInCell(message: Message, displayAvatar: Boolean) {
+private fun MessageInCell(viewModel: ChatViewModel, message: Message, displayAvatar: Boolean) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         if (displayAvatar) {
             Image(
@@ -411,17 +464,7 @@ private fun MessageInCell(message: Message, displayAvatar: Boolean) {
         }
 
         Spacer(modifier = Modifier.width(6.dp))
-        Box(
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .heightIn(min = 40.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White)
-                .clickable(onClick = {}),
-            contentAlignment = Alignment.Center
-        ) {
-            MessageText(message)
-        }
+        MessageText(viewModel, message)
     }
 }
 
@@ -438,21 +481,11 @@ private fun rememberAvatarHeight(): State<Dp> {
 }
 
 @Composable
-private fun MessageOutCell(message: Message, displayAvatar: Boolean) {
+private fun MessageOutCell(viewModel: ChatViewModel, message: Message, displayAvatar: Boolean) {
 //    val avatarHeight by rememberAvatarHeight()
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Box(
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .heightIn(min = 40.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White)
-                .clickable(onClick = {}),
-            contentAlignment = Alignment.Center,
-        ) {
-            MessageText(message)
-        }
+        MessageText(viewModel, message)
         Spacer(modifier = Modifier.width(6.dp))
         if (displayAvatar) {
             Image(
@@ -470,20 +503,83 @@ private fun MessageOutCell(message: Message, displayAvatar: Boolean) {
 }
 
 @Composable
-private fun MessageText(message: Message) {
-    Text(
-        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-        fontSize = 16.sp,
-        text = Emoji.instance.toAnnotatedString(message.message),
-        inlineContent = Emoji.instance.inlineContentMap()
-    )
+private fun RowScope.MessageText(viewModel: ChatViewModel, message: Message) {
+    val clipboard = LocalClipboard.current
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    var showPopup by remember { mutableStateOf(false) }
+    var pointOffset by remember { mutableStateOf(Offset.Zero) }
+    var popupSize by remember { mutableStateOf(IntSize.Zero) }
+    val popupSpace = remember(density) { with(density) { 20.dp.toPx() } }
+
+    Box(
+        modifier = Modifier
+            .weight(1f, fill = false)
+            .heightIn(min = 40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White)
+            .pointerInput(Unit) {
+                detectTapGestures(onLongPress = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (!showPopup) {
+                        pointOffset = it
+                        showPopup = true
+                    }
+                })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        AndroidText(
+            message.message,
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+        )
+
+        if (showPopup) {
+            Popup(
+                offset = IntOffset(
+                    (pointOffset.x - (popupSize.width / 2)).toInt(),
+                    (pointOffset.y - popupSize.height - popupSpace).toInt()
+                ),
+                onDismissRequest = { showPopup = false }) {
+                Row(
+                    modifier = Modifier
+                        .shadow(3.dp, shape = RoundedCornerShape(10.dp))
+                        .background(Color.White)
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .onGloballyPositioned { popupSize = it.size }) {
+
+                    ColumnButton("复制", R.drawable.icon_chat_copy) {
+                        clipboard.nativeClipboard.setPrimaryClip(
+                            ClipData.newPlainText(
+                                null,
+                                message.message
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    ColumnButton("删除", R.drawable.icon_chat_delete) {
+                        viewModel.deleteMessage(message)
+                    }
+                }
+            }
+        }
+//        Text(
+//            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+//            fontSize = 16.sp,
+//            text = Emoji.instance.toAnnotatedString(message.message),
+//            inlineContent = Emoji.instance.inlineContentMap()
+//        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ChatInputArea2(
     textContent: String,
-    keyboardController: EditTextFieldController,
+    keyboardController: AndroidEditTextController,
     editEventFlow: SharedFlow<EditTextEvent>,
     bottomPanel: Panel = Panel.NONE,
     onInputTextChanged: (String) -> Unit,
@@ -530,7 +626,7 @@ private fun ChatInputArea2(
             .navigationBarsPadding(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        EditTextField(
+        AndroidEditText(
             keyboardController,
             editEventFlow,
             Modifier

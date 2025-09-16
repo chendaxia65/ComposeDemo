@@ -3,5 +3,7 @@
 
     <style name="Theme.ComposeDemo" parent="Theme.MaterialComponents.DayNight.NoActionBar" >
 
+        <item name="android:textColorPrimary">#000000</item>
+        <item name="android:textColorTertiary">#000000</item>
     </style>
 </resources>

@@ -101,7 +101,7 @@ fun monitorKeyboardHeight(): State<Dp> {
 fun rememberPanelPadding2(
     keyboardManager: KeyboardManager,
     isPanelOpened: Boolean
-): State<PaddingValues> {
+): State<Dp> {
     val density = LocalDensity.current
     val navigationBars = WindowInsets.navigationBars
 
@@ -141,10 +141,10 @@ fun rememberPanelPadding2(
 
     //如果开启Panel 并且 Panel已经是开启状态 就返回固定Padding
     if (isPanelOpened && oldPanelState) {
-        return rememberUpdatedState(PaddingValues(bottom = keyboardState.imePadding))
+        return rememberUpdatedState(keyboardState.imePadding)
     } else if (!WindowInsets.isImeVisible && lastShown.value == false) {//如果键盘没有展开并且之前也没有被展开，这次操作视为开启或隐藏Panel，执行animateDpAsState
         updateDone(animPanelHeight)
-        return rememberUpdatedState(PaddingValues(bottom = animPanelHeight))
+        return rememberUpdatedState(animPanelHeight)
     }
 
     val imeBottom by keyboardManager.height
@@ -162,7 +162,7 @@ fun rememberPanelPadding2(
 
     updateDone(height)
 
-    return rememberUpdatedState(PaddingValues(bottom = height))
+    return rememberUpdatedState(height)
 }
 
 @Composable

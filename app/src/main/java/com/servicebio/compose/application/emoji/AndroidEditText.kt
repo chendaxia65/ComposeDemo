@@ -35,8 +35,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 
 @Composable
-fun EditTextField(
-    controller: EditTextFieldController,
+fun AndroidEditText(
+    controller: AndroidEditTextController,
     editEventFlow: SharedFlow<EditTextEvent>,
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource,
@@ -64,23 +64,25 @@ fun EditTextField(
     LaunchedEffect(editEventFlow) {
         //接收外部的关于需要使用EditText的事件
         editEventFlow.collect { editTextEvent ->
-            if ((editAndroidView?.text?.length ?: 0) <= 0) return@collect
             //外部需要触发键盘的删除事件
             if (editTextEvent is EditTextEvent.Delete) {
-                editAndroidView?.dispatchKeyEvent(
-                    KeyEvent(
-                        KeyEvent.ACTION_DOWN,
-                        KeyEvent.KEYCODE_DEL
+                val length = editAndroidView?.text?.length ?: 0
+                if (length > 0) {
+                    editAndroidView?.dispatchKeyEvent(
+                        KeyEvent(
+                            KeyEvent.ACTION_DOWN,
+                            KeyEvent.KEYCODE_DEL
+                        )
                     )
-                )
-                editAndroidView?.dispatchKeyEvent(
-                    KeyEvent(
-                        KeyEvent.ACTION_UP,
-                        KeyEvent.KEYCODE_DEL
+                    editAndroidView?.dispatchKeyEvent(
+                        KeyEvent(
+                            KeyEvent.ACTION_UP,
+                            KeyEvent.KEYCODE_DEL
+                        )
                     )
-                )
-                //震动触感
-                editAndroidView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    //震动触感
+                    editAndroidView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                }
             } else if (editTextEvent is EditTextEvent.Shock) {
                 editAndroidView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
@@ -168,7 +170,7 @@ fun EditTextField(
     )
 }
 
-class EditTextFieldController() {
+class AndroidEditTextController() {
     private var editText: EditText? = null
 
     fun bindEditText(editText: EditText) {

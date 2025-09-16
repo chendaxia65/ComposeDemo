@@ -137,7 +137,7 @@ fun ConversationListScreen(
                         if (index != conversationList.lastIndex)
                             HorizontalDivider(
                                 thickness = Dp.Hairline,
-                                modifier = Modifier.padding(start = 86.dp, end = 8.dp)
+                                modifier = Modifier.padding(start = 72.dp, end = 8.dp)
                             )
                     }
                 }

@@ -19,11 +19,14 @@ class ChatViewModel : ViewModel() {
     private val _bottomPanel = MutableStateFlow(Panel.NONE)
     val bottomPanel = _bottomPanel.asStateFlow()
 
+    private val _showCustomBackground = MutableStateFlow(false)
+    val showCustomBackground = _showCustomBackground.asStateFlow()
+
     init {
         viewModelScope.launch {
             _messages.value += listOf(
-                Message("Send", true, "啊付费OK门口马拉松大", 1757379600000L),
-                Message("Receive", false, "哈哈哈哈哈哈[得意]", 1757380200000),
+                Message("0","Send", true, "啊付费OK门口马拉松大", 1757379600000L),
+                Message("1","Receive", false, "哈哈哈哈哈哈[得意]", 1757380200000),
             ).reversed()
         }
     }
@@ -46,11 +49,26 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch {
             updateTextContent("")
             val newList = _messages.value.toMutableList()
-            newList.add(0, Message("Send", true, text, System.currentTimeMillis()))
+            val id = (newList.size + 1).toString()
+            newList.add(0, Message(id,"Send", true, text, System.currentTimeMillis()))
             if (text.lowercase() == "ok") {
-                newList.add(0, Message("Receive", false, text, System.currentTimeMillis()))
+                newList.add(0, Message(id,"Receive", false, text, System.currentTimeMillis()))
+            } else if (text == "背景") {
+                _showCustomBackground.emit(true)
+            } else if (text == "取消背景") {
+                _showCustomBackground.emit(false)
             }
             _messages.emit(newList)
+        }
+    }
+
+    fun deleteMessage(message: Message){
+        viewModelScope.launch {
+            val newList = _messages.value.toMutableList()
+           val success = newList.removeIf { it.id == message.id }
+            if(success){
+                _messages.emit(newList)
+            }
         }
     }
 }

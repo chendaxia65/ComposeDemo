@@ -193,7 +193,13 @@ fun rememberKeyboardManager(): KeyboardManager {
                 scope.launch {
                     delay(28)
                     Log.d("TAG", "rememberPanelPadding2: onAnimationEnd")
-                    manager.notifyAnimationEnd(ime.calculateBottomPadding())
+                    //在键盘动画被取消时(ModalBottomSheet在弹起时会取消键盘动画)，imeHeight就不会走到target值
+                    //所以需要在动画结束时，将imeHeight赋值
+                    val height = ime.calculateBottomPadding()
+                    if(imeHeight != height){
+                        imeHeight = height
+                    }
+                    manager.notifyAnimationEnd(height)
                 }
             })
 

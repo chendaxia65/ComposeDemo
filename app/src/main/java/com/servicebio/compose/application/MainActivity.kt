@@ -24,6 +24,8 @@ import com.servicebio.compose.application.ui.theme.ComposeDemoTheme
 import com.servicebio.compose.application.ui.view.ChatScreen
 import com.servicebio.compose.application.ui.view.MainScreen
 import com.servicebio.compose.application.ui.view.OtherScreen
+import com.servicebio.compose.application.ui.view.UserInfoScreen
+import com.servicebio.compose.application.ui.view.WebContainerScreen
 import com.servicebio.compose.application.viewmodel.ChatViewModel
 import kotlinx.serialization.json.Json
 
@@ -79,11 +81,21 @@ class MainActivity : ComponentActivity() {
                             conversationJson?.let { json -> Json.decodeFromString<Conversation>(json.decodeUri()) }
 
                         val viewModel = viewModel<ChatViewModel>(it)
-                        ChatScreen(navController, conversation,viewModel)
+                        ChatScreen(navController, conversation, viewModel)
                     }
 
                     composable(Route.Other.route) {
                         OtherScreen(navController)
+                    }
+
+                    composable(Route.UserInfo.route) {
+                        val name = it.arguments?.getString(Route.UserInfo.PARAMETER_NAME) ?: ""
+                        UserInfoScreen(navController, name)
+                    }
+
+                    composable(Route.WebContainer.route) {
+                        val url = it.arguments?.getString(Route.WebContainer.PARAMETER_NAME) ?: ""
+                        WebContainerScreen(navController, url)
                     }
                 }
             }

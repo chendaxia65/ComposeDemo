@@ -2,8 +2,10 @@ package com.servicebio.compose.application.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.servicebio.compose.application.component.SymbolAnnotationType
 import com.servicebio.compose.application.model.Message
 import com.servicebio.compose.application.model.Panel
+import com.servicebio.compose.application.model.SheetEvent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,11 +30,18 @@ class ChatViewModel : ViewModel() {
     private val _newMessageEvent = MutableSharedFlow<Unit>()
     val newMessageEvent = _newMessageEvent.asSharedFlow()
 
+    private val _toggleKeyboardEvent = MutableSharedFlow<Boolean>()
+    val toggleKeyboardEvent = _toggleKeyboardEvent.asSharedFlow()
+
+    private val _showBottomSheet = MutableStateFlow<SheetEvent>(SheetEvent.DismissSheet)
+    val showBottomSheet = _showBottomSheet.asStateFlow()
+
     init {
         viewModelScope.launch {
             _messages.value += listOf(
                 Message("0", "Send", true, "啊付费OK门口马拉松大", 1757379600000L),
                 Message("1", "Receive", false, "哈哈哈哈哈哈[得意]", 1757380200000),
+                Message("2", "Send", true, "[得意] @小姐姐 www.google.com +1 5634471692 czhen711@163.com", 1757380200000),
             ).reversed()
         }
     }
@@ -80,6 +89,20 @@ class ChatViewModel : ViewModel() {
                 _messages.emit(newList)
             }
         }
+    }
+
+    fun toggleKeyboard(shown: Boolean = false) {
+        viewModelScope.launch { _toggleKeyboardEvent.emit(shown) }
+    }
+
+    fun showBottomSheet(type: SymbolAnnotationType, item: String) {
+        viewModelScope.launch {
+            _showBottomSheet.emit(SheetEvent.ShowSheet(type, item))
+        }
+    }
+
+    fun dismissBottomSheet() {
+        viewModelScope.launch { _showBottomSheet.emit(SheetEvent.DismissSheet) }
     }
 
     private val sentences = arrayListOf(

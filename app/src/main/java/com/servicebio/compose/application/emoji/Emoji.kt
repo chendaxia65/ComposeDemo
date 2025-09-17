@@ -13,6 +13,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
@@ -183,17 +184,17 @@ class Emoji {
         return null
     }
 
-    fun toAnnotatedString(text: String): AnnotatedString {
+    fun toAnnotatedString(text: AnnotatedString): AnnotatedString {
         return buildAnnotatedString {
             var lastIndex = 0
             tokenRegex.findAll(text).forEach { match ->
-                append(text.substring(lastIndex, match.range.first))
+                append(text.subSequence(TextRange(lastIndex, match.range.first)))
+
                 appendInlineContent(match.value, match.value)
                 lastIndex = match.range.last + 1
             }
-
             if (lastIndex < text.length) {
-                append(text.substring(lastIndex))
+                append(text.subSequence(TextRange(lastIndex, text.length)))
             }
         }
     }

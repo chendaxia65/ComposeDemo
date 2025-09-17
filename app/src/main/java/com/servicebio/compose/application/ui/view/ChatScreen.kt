@@ -97,6 +97,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -111,7 +112,11 @@ import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import com.servicebio.compose.application.R
 import com.servicebio.compose.application.component.ColumnButton
+import com.servicebio.compose.application.component.EmailSheetDialog
 import com.servicebio.compose.application.component.KeyboardManager
+import com.servicebio.compose.application.component.PhoneSheetDialog
+import com.servicebio.compose.application.component.SymbolAnnotationType
+import com.servicebio.compose.application.component.messageFormatter
 import com.servicebio.compose.application.component.monitorKeyboardHeight
 import com.servicebio.compose.application.component.rememberKeyboardManager
 import com.servicebio.compose.application.component.rememberPanelPadding2
@@ -125,6 +130,7 @@ import com.servicebio.compose.application.ext.removeKey
 import com.servicebio.compose.application.model.Conversation
 import com.servicebio.compose.application.model.Message
 import com.servicebio.compose.application.model.Panel
+import com.servicebio.compose.application.model.SheetEvent
 import com.servicebio.compose.application.route.Route
 import com.servicebio.compose.application.utils.TimestampUtils
 import com.servicebio.compose.application.utils.showToast
@@ -160,6 +166,8 @@ fun ChatScreen(
 
     val hidePanel = { viewModel.updatePanel(Panel.NONE) }
 
+    val showBottomSheet by viewModel.showBottomSheet.collectAsState()
+
     //接收二级页面返回时携带的数据
     val screenResultFlow = navController.getResultStateFlow("result", "")
 
@@ -184,6 +192,16 @@ fun ChatScreen(
         screenResultFlow?.collect {
             if (it.isNotEmpty()) viewModel.updateTextContent(it)
             navController.removeKey<String>("result")
+        }
+
+
+    }
+    LaunchedEffect(viewModel) {
+        Log.d("TAG", "toggleKeyboardEvent:")
+
+        viewModel.toggleKeyboardEvent.collect { shown ->
+            Log.d("TAG", "toggleKeyboardEvent: $shown")
+            if (shown) keyboardController.showSoftKeyboard() else keyboardController.hideSoftKeyboard()
         }
     }
 
@@ -275,6 +293,21 @@ fun ChatScreen(
                     }
                 }
             }
+
+            if (showBottomSheet is SheetEvent.ShowSheet) {
+                val sheet = (showBottomSheet as SheetEvent.ShowSheet)
+                if (sheet.type == SymbolAnnotationType.PHONE) {
+                    PhoneSheetDialog(sheet.item) { viewModel.dismissBottomSheet() }
+                } else if (sheet.type == SymbolAnnotationType.EMAIL) {
+                    EmailSheetDialog(sheet.item) { viewModel.dismissBottomSheet() }
+                } else if (sheet.type == SymbolAnnotationType.PERSON) {
+                    navController.navigate(Route.UserInfo.buildRoute(sheet.item))
+                    viewModel.dismissBottomSheet()
+                }else if (sheet.type == SymbolAnnotationType.LINK) {
+                    navController.navigate(Route.WebContainer.buildRoute(sheet.item))
+                    viewModel.dismissBottomSheet()
+                }
+            }
         }
     }
 }
@@ -326,14 +359,15 @@ private fun ChatContent(
     val textContent by viewModel.messageTextContent.collectAsState()
     val bottomPanel by viewModel.bottomPanel.collectAsState()
 
+    val isImeVisibleUpdater by rememberUpdatedState(WindowInsets.isImeVisible)
+
     // 当键盘弹起或Panel显示时，需要增加底部的padding，避免内容被遮挡
     val resizeBottom by rememberPanelPadding2(keyboardManager, bottomPanel.isOpened())
 
     val messages by viewModel.messages.collectAsState()
 
     val scope = rememberCoroutineScope()
-    val isImeVisible = WindowInsets.isImeVisible
-    val isImeVisibleUpdater by rememberUpdatedState(isImeVisible)
+
     val listState = rememberLazyListState()
 
 
@@ -344,6 +378,7 @@ private fun ChatContent(
             }
         }
         viewModel.newMessageEvent.collect {
+            Log.d("TAG", "newMessageEvent: ")//自动发送
             listState.animateScrollToItem(0)
         }
     }
@@ -356,20 +391,20 @@ private fun ChatContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f)
+                .pointerInput(Unit) {
+                    detectTapGestures(onPress = {
+                        if (bottomPanel.isOpened()) {
+                            viewModel.updatePanel(Panel.NONE)
+                        } else if (isImeVisibleUpdater) {
+                            viewModel.toggleKeyboard()
+                        }
+                    })
+                }
 
         ) {
             LazyColumn(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(onPress = {
-                            if (bottomPanel.isOpened()) {
-                                viewModel.updatePanel(Panel.NONE)
-                            } else if (isImeVisibleUpdater) {
-                                keyboardController.hideSoftKeyboard()
-                            }
-                        })
-                    },
+                    .fillMaxWidth(),
                 contentPadding = PaddingValues(12.dp),
                 state = listState,
                 reverseLayout = true
@@ -493,16 +528,23 @@ private fun MessageOutCell(viewModel: ChatViewModel, message: Message, displayAv
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RowScope.MessageText(viewModel: ChatViewModel, message: Message) {
     val clipboard = LocalClipboard.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val isImeVisibleUpdater by rememberUpdatedState(WindowInsets.isImeVisible)
     var showPopup by remember { mutableStateOf(false) }
     var pointOffset by remember { mutableStateOf(Offset.Zero) }
     var popupSize by remember { mutableStateOf(IntSize.Zero) }
     val popupSpace = remember(density) { with(density) { 20.dp.toPx() } }
-    val messageAnnotatedString = remember(message.message) { Emoji.instance.toAnnotatedString(message.message) }
+
+    val annotation = messageFormatter(message.message, true)
+    val messageAnnotatedString =
+        remember(message.message) { Emoji.instance.toAnnotatedString(annotation) }
+
+    val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
     Box(
         modifier = Modifier
@@ -510,6 +552,7 @@ private fun RowScope.MessageText(viewModel: ChatViewModel, message: Message) {
             .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color.White)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
             .pointerInput(Unit) {
                 detectTapGestures(onLongPress = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -517,21 +560,69 @@ private fun RowScope.MessageText(viewModel: ChatViewModel, message: Message) {
                         pointOffset = it
                         showPopup = true
                     }
+                }, onTap = { pos ->
+                    layoutResult.value?.let { layoutResult ->
+                        val position = layoutResult.getOffsetForPosition(pos)
+                        messageAnnotatedString.getStringAnnotations(position, position)
+                            .firstOrNull()?.let { annotation ->
+                                if (isImeVisibleUpdater) {
+                                    viewModel.toggleKeyboard()
+                                }
+                                //@小姐姐 www.google.com +1 5634471692 czhen711@163.com
+                                when (annotation.tag) {
+                                    SymbolAnnotationType.LINK.name -> {
+                                        viewModel.showBottomSheet(
+                                            SymbolAnnotationType.LINK,
+                                            annotation.item
+                                        )
+                                    }
+
+                                    SymbolAnnotationType.PERSON.name -> {
+                                        viewModel.showBottomSheet(
+                                            SymbolAnnotationType.PERSON,
+                                            annotation.item.substring(1)
+                                        )
+                                    }
+
+                                    SymbolAnnotationType.PHONE.name -> {
+                                        viewModel.showBottomSheet(
+                                            SymbolAnnotationType.PHONE,
+                                            annotation.item
+                                        )
+                                    }
+
+
+                                    SymbolAnnotationType.EMAIL.name -> {
+                                        viewModel.showBottomSheet(
+                                            SymbolAnnotationType.EMAIL,
+                                            annotation.item
+                                        )
+                                    }
+
+                                    else -> Unit
+                                }
+                            }
+                    }
                 })
             },
         contentAlignment = Alignment.Center,
     ) {
+
 //        AndroidText(
 //            message.message,
 //            modifier = Modifier
 //                .padding(horizontal = 10.dp, vertical = 8.dp)
 //        )
         Text(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            modifier = Modifier,
             fontSize = 16.sp,
             text = messageAnnotatedString,
-            inlineContent = Emoji.instance.inlineContentMap()
+            inlineContent = Emoji.instance.inlineContentMap(),
+            onTextLayout = {
+                layoutResult.value = it
+            }
         )
+
         if (showPopup) {
             Popup(
                 offset = IntOffset(
